@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Production build
+dist/
+dist-ssr/
+*.local
+
+# Extracted frames output & archives
+output/
+*.zip
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Environment & local settings
+.env
+.env.local
+.env.*.local
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
