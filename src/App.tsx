@@ -15,23 +15,60 @@ import {
   cancelExtractionApi,
   deleteFrameApi,
   getDownloadZipUrl,
+  getSavedFramesApi,
+  clearAllFramesApi,
+  downloadAllFramesZipApi,
 } from './services/api';
 import type { VideoMetadata, ExtractedFrame, ExtractionProgress, VideoQuality } from '../server/types';
 
 export const App: React.FC = () => {
   const [url, setUrl] = useState<string>('https://www.youtube.com/watch?v=aqz-KE-bpKQ');
-  const [video, setVideo] = useState<VideoMetadata | null>(null);
+  const [video, setVideo] = useState<VideoMetadata | null>(() => {
+    try {
+      const stored = localStorage.getItem('framepicker_saved_video');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
   const [currentTime, setCurrentTime] = useState<number>(15);
   const [isLoadingVideo, setIsLoadingVideo] = useState<boolean>(false);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [activeTask, setActiveTask] = useState<ExtractionProgress | null>(null);
-  const [frames, setFrames] = useState<ExtractedFrame[]>([]);
+  const [frames, setFrames] = useState<ExtractedFrame[]>(() => {
+    try {
+      const stored = localStorage.getItem('framepicker_saved_frames');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
   const [selectedFrame, setSelectedFrame] = useState<ExtractedFrame | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const readVideoTimeRef = useRef<(() => number | null) | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('framepicker_saved_frames', JSON.stringify(frames));
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === 'QuotaExceededError' || err.code === 22)) {
+        addToast(
+          'error',
+          'Browser Storage Full',
+          'Frame gallery metadata could not be fully saved to your browser session. Consider downloading your frames as ZIP.'
+        );
+      }
+    }
+  }, [frames]);
+
+  useEffect(() => {
+    try {
+      if (video) localStorage.setItem('framepicker_saved_video', JSON.stringify(video));
+    } catch {}
+  }, [video]);
 
   const handleGetVideoTime = (): number => {
     const fromPlayer = readVideoTimeRef.current ? readVideoTimeRef.current() : null;
@@ -41,6 +78,11 @@ export const App: React.FC = () => {
 
   const addToast = (type: 'success' | 'error' | 'info', title: string, description?: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), type, title, description }]);
+  };
+
+  const handleLocalVideoLoaded = (metadata: VideoMetadata) => {
+    setVideo(metadata);
+    setCurrentTime(Math.min(1, metadata.duration / 2));
   };
 
   const handleDismissToast = (id: string) => {
@@ -163,7 +205,6 @@ export const App: React.FC = () => {
       await deleteFrameApi(sessionId, frame.filename);
       setFrames((prev) => prev.filter((f) => f.id !== frame.id));
       if (selectedFrame?.id === frame.id) setSelectedFrame(null);
-      addToast('info', 'Frame deleted', frame.filename);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete frame';
       addToast('error', 'Delete failed', msg);
@@ -178,24 +219,62 @@ export const App: React.FC = () => {
         new ClipboardItem({ [blob.type]: blob }),
       ]);
       setCopiedId(frame.id);
-      addToast('success', 'Copied to clipboard', 'Frame image copied');
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      addToast('info', 'Image URL copied', frame.url);
       await navigator.clipboard.writeText(window.location.origin + frame.url);
     }
   };
 
-  const handleDownloadZip = () => {
-    if (!activeSessionId) {
-      addToast('info', 'Download single images below or run a series first');
+  const handleDownloadZip = async () => {
+    if (frames.length === 0) {
+      addToast('info', 'No frames to download', 'Extract some frames first.');
       return;
     }
-    window.open(getDownloadZipUrl(activeSessionId), '_blank');
+    try {
+      addToast('info', 'Preparing ZIP archive...', `Bundling ${frames.length} frames`);
+      await downloadAllFramesZipApi(frames);
+      addToast('success', 'Download Started', `Downloaded zip with ${frames.length} frames.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to download zip';
+      addToast('error', 'Download Failed', msg);
+    }
+  };
+
+  const handleLoadFrameInVideo = (frame: ExtractedFrame) => {
+    setCurrentTime(frame.timestamp);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleClearAllFrames = async () => {
+    try {
+      await clearAllFramesApi();
+      setFrames([]);
+      try {
+        localStorage.removeItem('framepicker_saved_frames');
+      } catch {}
+      addToast('info', 'All Frames Cleared', 'Permanently deleted all frame files from disk.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear frames from disk';
+      addToast('error', 'Clear Failed', msg);
+    }
   };
 
   useEffect(() => {
-    handleLoadVideo();
+    const initApp = async () => {
+      if (!video) {
+        handleLoadVideo();
+      }
+      try {
+        const serverFrames = await getSavedFramesApi();
+        if (!serverFrames || serverFrames.length === 0) return;
+        setFrames((prev) => {
+          if (prev.length === 0) return serverFrames;
+          const map = new Map(serverFrames.map((f) => [f.filename, f]));
+          return prev.map((f) => map.get(f.filename) ?? f);
+        });
+      } catch {}
+    };
+    initApp();
   }, []);
 
   return (
@@ -207,7 +286,9 @@ export const App: React.FC = () => {
           url={url}
           onChange={setUrl}
           onSubmit={handleLoadVideo}
+          onVideoLoaded={handleLocalVideoLoaded}
           isLoading={isLoadingVideo}
+          onToast={addToast}
         />
 
         {video && (
@@ -251,10 +332,12 @@ export const App: React.FC = () => {
           frames={frames}
           onSelectFrame={setSelectedFrame}
           onDownloadZip={handleDownloadZip}
-          onClear={() => setFrames([])}
+          onClear={handleClearAllFrames}
           onCopyFrame={handleCopyFrame}
           onDeleteFrame={handleDeleteFrame}
+          onLoadInVideo={handleLoadFrameInVideo}
           copiedId={copiedId}
+          onToast={addToast}
         />
       </main>
 
@@ -263,6 +346,7 @@ export const App: React.FC = () => {
         onClose={() => setSelectedFrame(null)}
         onCopy={handleCopyFrame}
         onDelete={handleDeleteFrame}
+        onLoadInVideo={handleLoadFrameInVideo}
         isCopied={copiedId === selectedFrame?.id}
       />
 

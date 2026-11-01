@@ -1,5 +1,17 @@
-import React, { useEffect } from 'react';
-import { X, Download, Copy, ChevronLeft, ChevronRight, Check, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  Download,
+  Copy,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  Trash2,
+  Video,
+  Eye,
+  EyeOff,
+  AlertTriangle,
+} from 'lucide-react';
 import type { ExtractedFrame } from '../../server/types';
 import { formatBytes } from '../services/formatters';
 
@@ -10,6 +22,9 @@ interface Props {
   onNext?: () => void;
   onCopy: (frame: ExtractedFrame) => void;
   onDelete?: (frame: ExtractedFrame) => void;
+  onLoadInVideo?: (frame: ExtractedFrame) => void;
+  onToggleDisable?: (frame: ExtractedFrame) => void;
+  isFrameDisabled?: boolean;
   isCopied: boolean;
 }
 
@@ -20,8 +35,17 @@ export const FramePreviewModal: React.FC<Props> = ({
   onNext,
   onCopy,
   onDelete,
+  onLoadInVideo,
+  onToggleDisable,
+  isFrameDisabled,
   isCopied,
 }) => {
+  const [hasError, setHasError] = useState<boolean>(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [frame?.url]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -47,6 +71,37 @@ export const FramePreviewModal: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onLoadInVideo && (
+              <button
+                type="button"
+                onClick={() => {
+                  onLoadInVideo(frame);
+                  onClose();
+                }}
+                className="px-3 py-1.5 rounded-lg bg-surface border border-border-subtle text-xs text-slate-300 hover:text-white flex items-center gap-1.5 cursor-pointer"
+                title="Seek video player to this timestamp"
+              >
+                <Video className="w-3.5 h-3.5 text-cinema-accent" />
+                <span>Load in Video</span>
+              </button>
+            )}
+
+            {onToggleDisable && (
+              <button
+                type="button"
+                onClick={() => onToggleDisable(frame)}
+                className={`px-3 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 cursor-pointer transition-colors ${
+                  isFrameDisabled
+                    ? 'bg-cinema-accent/20 border-cinema-accent text-cinema-accent font-semibold'
+                    : 'bg-surface border-border-subtle text-slate-300 hover:text-white'
+                }`}
+                title="Exclude or include this frame in animations and spritesheets"
+              >
+                {isFrameDisabled ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                <span>{isFrameDisabled ? 'Excluded' : 'Exclude'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => onCopy(frame)}
@@ -89,11 +144,20 @@ export const FramePreviewModal: React.FC<Props> = ({
         </div>
 
         <div className="relative flex-1 bg-black flex items-center justify-center overflow-auto min-h-[300px] p-2">
-          <img
-            src={frame.url}
-            alt={frame.filename}
-            className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg select-none"
-          />
+          {hasError ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400">
+              <AlertTriangle className="w-10 h-10 text-amber-400/80 mb-2" />
+              <span className="text-sm font-semibold text-slate-200">Image file missing from server</span>
+              <span className="text-xs text-slate-500 font-mono mt-1">{frame.filename}</span>
+            </div>
+          ) : (
+            <img
+              src={frame.url}
+              alt={frame.filename}
+              onError={() => setHasError(true)}
+              className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg select-none"
+            />
+          )}
 
           {onPrev && (
             <button

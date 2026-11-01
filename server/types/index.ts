@@ -6,9 +6,12 @@ export interface VideoMetadata {
   durationFormatted: string;
   thumbnail: string;
   url: string;
+  sourceType?: 'youtube' | 'local';
   viewCount?: number;
   description?: string;
   fps?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface ExtractedFrame {
@@ -20,6 +23,7 @@ export interface ExtractedFrame {
   filename: string;
   url: string;
   sizeBytes: number;
+  disabled?: boolean;
   width?: number;
   height?: number;
 }
